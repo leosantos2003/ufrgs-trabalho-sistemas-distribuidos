@@ -1,2 +1,6 @@
 # Logs gerados pelos testes de carga e demonstrações.
 *.log
+
+# Bytecode e caches gerados pelo Python.
+__pycache__/
+*.py[cod]
