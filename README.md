@@ -1,5 +1,7 @@
 # Serviço distribuído de soma confiável
 
+**UFRGS -INF01085 - Sistemas Distribuídos e Tolerantes a Falhas - 2026/2**
+
 Implementação da primeira parte do trabalho prático de Sistemas Distribuídos e
 Tolerantes a Falhas. O sistema usa exclusivamente UDP/IP para a comunicação
 entre processos e implementa descoberta por broadcast e processamento confiável
@@ -68,3 +70,7 @@ que ultrapassaria esse limite.
 - `servidor.py`: descoberta, tabela de participantes, deduplicação e soma.
 - `cliente.py`: leitura em thread dedicada, saída em thread dedicada e envio
   stop-and-wait.
+
+  ## License
+
+  Distributed under the MIT License. See `LICENSE.txt` for more information.
