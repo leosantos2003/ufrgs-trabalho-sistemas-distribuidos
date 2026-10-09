@@ -50,7 +50,7 @@ bits em ordem de rede: `REQUEST(id_req, value)` e
 as outras mensagens são unicast.
 
 Cada cliente inicia em `id_req = 1` e envia apenas uma requisição pendente. Se
-o ACK não chega em 10 ms, ele registra o timeout e retransmite a mesma
+o ACK não chega em 100 ms, ele registra o timeout e retransmite a mesma
 requisição. O servidor guarda, por IP de cliente, a última requisição aceita e
 o retrato do acumulador devolvido naquela resposta. Assim, uma duplicata não é
 somada novamente: recebe novamente o ACK previamente calculado. Uma mensagem

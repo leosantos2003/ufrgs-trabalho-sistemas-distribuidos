@@ -20,7 +20,7 @@ Para teste local, há suporte a `DISCOVERY_BROADCAST=127.255.255.255`. Ela só �
 
 ### Processamento confiável
 
-Após a descoberta, o cliente aplica stop-and-wait: cria `REQUEST(id_req, value)`, envia-a e não busca o próximo valor até receber o ACK daquela mesma requisição. O identificador começa em 1 e só é incrementado após a confirmação. Se o ACK não chega em 10 ms, o cliente registra o timeout e retransmite exatamente o mesmo datagrama.
+Após a descoberta, o cliente aplica stop-and-wait: cria `REQUEST(id_req, value)`, envia-a e não busca o próximo valor até receber o ACK daquela mesma requisição. O identificador começa em 1 e só é incrementado após a confirmação. Se o ACK não chega em 100 ms, o cliente registra o timeout e retransmite exatamente o mesmo datagrama. O valor foi escolhido de forma conservadora para a rede local e está de acordo com a exigência de aguardar um limite de tempo antes do reenvio.
 
 O servidor mantém uma entrada por IP com `last_req`, `last_num_reqs` e `last_total_sum`. Se `id_req` é o próximo esperado, o servidor soma `value`, atualiza as estruturas e responde com `ACK`. Se a requisição é duplicada ou adiantada, ele não soma novamente e responde com o ACK da última requisição efetivamente processada desse cliente. Assim, o cliente mantém a mensagem pendente até receber sua confirmação.
 
@@ -66,5 +66,10 @@ UDP não fornece confiabilidade, ordem ou ausência de duplicação. Essas garan
 ## 7. Validação executada
 
 1. Compilação dos módulos com `python3 -m py_compile`.
-2. Execução local de servidor e cliente, com descoberta UDP, enviando 10 e 3. O servidor registrou `num_reqs 2 total_sum 13`.
-3. Envio controlado de uma requisição duplicada e outra com lacuna. A duplicata foi marcada como `DUP!!`; a mensagem fora de ordem foi marcada como `OUT_OF_ORDER`; ambas retornaram o ACK da requisição 1 sem mudar a soma.
+2. Execução local entre Ubuntu e Windows, com descoberta UDP, enviando 10, 3 e 5. O servidor registrou corretamente `num_reqs 3 total_sum 18`. Uma retransmissão foi marcada como `DUP!!` sem alterar a soma.
+3. Teste doméstico com os valores de 1 a 100. Considerando os valores anteriores, o servidor chegou a `num_reqs 102 total_sum 5063`, valor compatível com `13 + sum(1..100)`.
+4. Teste de concorrência no laboratório com dois clientes Linux em IPs distintos. Cada cliente enviou 100 requisições; o servidor terminou com `num_reqs 200 total_sum 20100`.
+5. Teste de carga no laboratório com dois clientes, cada um enviando 1.000 requisições. O log registrou 2.000 requisições aceitas, sem mensagens duplicadas ou fora de ordem, e o resultado final foi `num_reqs 2000 total_sum 2001000`.
+6. Teste de carga com os arquivos `N1_1000000_NUM_ALEATORIOS.txt` e `N2_1000000_NUM_ALEATORIOS.txt`, processados concorrentemente em dois clientes Linux. As somas independentes foram 25486602 e 25513505; o servidor processou 2.000.000 requisições e terminou com `num_reqs 2000000 total_sum 51000107`, sem registros `DUP!!` nem `OUT_OF_ORDER`.
+
+Os comandos, resultados e logs dos testes estão documentados em `TESTES_EM_CASA.md` e `TESTE_EM_LABORATORIO.md`.

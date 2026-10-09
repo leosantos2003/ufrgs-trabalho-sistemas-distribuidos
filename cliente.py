@@ -25,7 +25,9 @@ from protocol import (
 )
 
 DISCOVERY_RETRY_SECONDS = 0.5
-REQUEST_TIMEOUT_SECONDS = 0.010
+# Valor validado nos testes de rede doméstica e de laboratório. O enunciado
+# permite configurar o timeout conforme o RTT da rede local.
+REQUEST_TIMEOUT_SECONDS = 0.100
 STOP = object()
 
 
