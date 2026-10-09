@@ -2,7 +2,7 @@
 
 **Disciplina:** INF01085 - Sistemas Distribuídos e Tolerantes a Falhas  
 **Turma:** U - 2026/1  
-**Integrantes:** preencher com os quatro integrantes do grupo.
+**Integrantes:** 
 
 ## 1. Visão geral
 

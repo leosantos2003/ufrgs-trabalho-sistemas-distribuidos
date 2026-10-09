@@ -1,6 +1,6 @@
 # Serviço distribuído de soma confiável
 
-**UFRGS -INF01085 - Sistemas Distribuídos e Tolerantes a Falhas - 2026/2**
+**UFRGS - INF01085 - Sistemas Distribuídos e Tolerantes a Falhas - 2026/2**
 
 Implementação da primeira parte do trabalho prático de Sistemas Distribuídos e
 Tolerantes a Falhas. O sistema usa exclusivamente UDP/IP para a comunicação
