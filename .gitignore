@@ -4,3 +4,7 @@
 # Bytecode e caches gerados pelo Python.
 __pycache__/
 *.py[cod]
+
+# Template local e pacote auxiliar para importação no Overleaf.
+slides-infufrgs/
+apresentacao-overleaf/

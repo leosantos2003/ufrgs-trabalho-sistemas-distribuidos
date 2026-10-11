@@ -1,0 +1,311 @@
+% Apresentacao do Trabalho Pratico 1 - INF01085
+% Compile a partir da raiz do projeto com um ambiente LaTeX que inclua Beamer.
+\documentclass{beamer}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[brazil]{babel}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+
+% Template institucional fornecido no repositório. A segunda alternativa
+% permite compilar o pacote plano preparado para o Overleaf.
+\IfFileExists{slides-infufrgs/slides/beamerthemeInf.sty}{%
+  \usepackage{slides-infufrgs/slides/beamerthemeInf}%
+  \graphicspath{{slides-infufrgs/slides/}}%
+}{%
+  \usepackage{beamerthemeInf}%
+  \graphicspath{{./}}%
+}
+
+% Preencher antes da apresentação.
+\newcommand{\Integrantes}{Nome 1 \quad Nome 2 \quad Nome 3 \quad Nome 4}
+
+\title[Serviço distribuído de soma]{Serviço distribuído de soma confiável}
+\subtitle{INF01085 -- Sistemas Distribuídos e Tolerantes a Falhas\\Trabalho Prático 1: comunicação confiável interprocessos}
+\author{\Integrantes}
+\institute{Instituto de Informática -- UFRGS}
+\date{Outubro de 2026}
+
+\begin{document}
+
+\InfTitlePage
+
+\section{Problema}
+
+\begin{frame}
+  \frametitle{Objetivo e requisitos}
+  \begin{itemize}
+    \item Receber inteiros positivos de clientes distintos e manter uma soma global.
+    \item Usar exclusivamente UDP/IP para a comunicação entre processos.
+    \item Garantir que cada valor entre na soma global exatamente uma vez.
+    \item Tolerar perda, duplicação e reordenação de datagramas.
+    \item Exibir o estado do serviço após cada requisição aceita.
+  \end{itemize}
+
+  \vspace{1em}
+  \begin{block}{Critério principal}
+    A soma final deve corresponder à soma de todos os valores enviados por todos os clientes.
+  \end{block}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Arquitetura do serviço}
+  \begin{columns}[T]
+    \begin{column}{0.47\textwidth}
+      \textbf{Descoberta}
+      \begin{enumerate}
+        \item Cliente envia \texttt{DISCOVER} em broadcast.
+        \item Servidor registra o IP do participante.
+        \item Servidor responde \texttt{DISCOVER\_ACK} em unicast.
+      \end{enumerate}
+    \end{column}
+    \begin{column}{0.47\textwidth}
+      \textbf{Processamento}
+      \begin{enumerate}
+        \item Cliente envia uma \texttt{REQUEST}.
+        \item Servidor processa ou identifica duplicata.
+        \item Servidor responde um \texttt{ACK}.
+      \end{enumerate}
+    \end{column}
+  \end{columns}
+
+  \vspace{1.2em}
+  \begin{center}
+    \texttt{Cliente A / Cliente B / ...} \hspace{1.2em} $\longleftrightarrow$ \hspace{1.2em} \texttt{Servidor UDP}
+  \end{center}
+
+  \vspace{0.8em}
+  O servidor mantém somente estado em memória, como previsto para a primeira etapa.
+\end{frame}
+
+\section{Protocolo confiável}
+
+\begin{frame}
+  \frametitle{Formato das mensagens}
+  \small
+  \begin{center}
+    \begin{tabular}{@{}lll@{}}
+      \toprule
+      Mensagem & Conteúdo & Tamanho \\
+      \midrule
+      \texttt{DISCOVER} & tipo & 1 byte \\
+      \texttt{DISCOVER\_ACK} & tipo & 1 byte \\
+      \texttt{REQUEST} & tipo, \texttt{id\_req}, valor & 17 bytes \\
+      \texttt{ACK} & tipo, \texttt{last\_req}, \texttt{num\_reqs}, \texttt{total\_sum} & 25 bytes \\
+      \texttt{EXIT} & tipo & 1 byte \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+
+  \vspace{1em}
+  \begin{itemize}
+    \item Campos numéricos usam inteiros sem sinal de 64 bits em ordem de rede.
+    \item O formato binário fixo reduz serialização e parsing em cargas grandes.
+    \item O protocolo valida tamanho, tipo e faixa dos campos antes de processar uma mensagem.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Cliente: stop-and-wait}
+  \begin{enumerate}
+    \item Lê um inteiro positivo da entrada padrão.
+    \item Cria \texttt{REQUEST(id\_req, value)} e envia ao servidor.
+    \item Aguarda até 100 ms por um \texttt{ACK} do servidor descoberto.
+    \item Aceita apenas o ACK com o mesmo \texttt{id\_req} pendente.
+    \item Incrementa o identificador somente após a confirmação.
+  \end{enumerate}
+
+  \vspace{1em}
+  \begin{alertblock}{Timeout}
+    Quando o limite expira, o cliente retransmite o mesmo datagrama: mesmo ID e mesmo valor. Nenhuma nova requisição é enviada nesse intervalo.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Servidor: estado por cliente}
+  \small
+  \textbf{Tabela de participantes, indexada pelo endereço IP}
+  \vspace{0.35em}
+
+  \begin{center}
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabular}{@{}ll@{}}
+      \toprule
+      Campo & Significado \\
+      \midrule
+      \texttt{last\_req} & último ID aceito \\
+      \texttt{last\_num\_reqs} & quantidade global no último ACK \\
+      \texttt{last\_total\_sum} & soma global no último ACK \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+
+  \vspace{0.8em}
+  \textbf{Decisão para cada requisição recebida}
+  \vspace{0.3em}
+
+  \begin{center}
+    \renewcommand{\arraystretch}{1.25}
+    \begin{tabular}{@{}p{0.38\textwidth}p{0.51\textwidth}@{}}
+      \toprule
+      Condição & Ação do servidor \\
+      \midrule
+      \texttt{id\_req = last\_req + 1} & Soma o valor, atualiza a tabela e envia o ACK. \\
+      \texttt{id\_req <= last\_req} & Exibe \texttt{DUP!!} e reenvia o ACK armazenado. \\
+      \texttt{id\_req > last\_req + 1} & Exibe mensagem fora de ordem e devolve o último ACK. \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Garantia de exatamente uma vez}
+  \begin{block}{Invariante por cliente}
+    Depois de processar uma requisição com ID $n$, o servidor já aplicou exatamente uma vez as requisições de 1 até $n$ daquele cliente.
+  \end{block}
+
+  \begin{itemize}
+    \item Apenas \texttt{last\_req + 1} altera \texttt{num\_reqs} e \texttt{total\_sum}.
+    \item Após essa atualização, uma nova cópia do mesmo ID cai no caso de duplicata.
+    \item O servidor devolve o retrato do ACK original, armazenado no estado do cliente.
+    \item O cliente mantém somente uma requisição pendente, portanto não cria lacunas no fluxo normal.
+  \end{itemize}
+
+  \vspace{0.5em}
+  \textbf{Caso de ACK perdido:} o cliente retransmite, o servidor reconhece a duplicata e reenvia a confirmação sem repetir a soma.
+\end{frame}
+
+\section{Implementação}
+
+\begin{frame}
+  \frametitle{Sincronização e interface}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \textbf{Servidor}
+      \begin{itemize}
+        \item Um único loop recebe e processa datagramas.
+        \item Atualizações da tabela e do acumulador são serializadas.
+        \item Não há duas threads alterando o estado global.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \textbf{Cliente}
+      \begin{itemize}
+        \item Uma thread lê a entrada padrão.
+        \item Uma thread escreve mensagens na tela.
+        \item A thread principal controla socket, ACKs e timeouts.
+        \item Filas thread-safe transferem valores e mensagens.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+
+  \vspace{1em}
+  \begin{block}{Encerramento}
+    \texttt{Ctrl+C} ou \texttt{Ctrl+D} encerra o cliente e envia \texttt{EXIT} ao servidor quando a descoberta já ocorreu.
+  \end{block}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Interface e demonstração}
+  \begin{columns}[T]
+    \begin{column}{0.47\textwidth}
+      \textbf{Servidor}
+      \begin{exampleblock}{Inicialização}
+        \texttt{python3 servidor.py 4000}
+      \end{exampleblock}
+      \small
+      \texttt{2026-10-09 11:00:00 num\_reqs 0 total\_sum 0}
+    \end{column}
+    \begin{column}{0.47\textwidth}
+      \textbf{Cliente}
+      \begin{exampleblock}{Inicialização}
+        \texttt{python3 cliente.py 4000}
+      \end{exampleblock}
+      \small
+      \texttt{2026-10-09 11:00:01 server\_addr 10.67.103.34}
+    \end{column}
+  \end{columns}
+
+  \vspace{1em}
+  \begin{itemize}
+    \item O cliente não mostra prompt para leitura de valores.
+    \item Cada ACK mostra ID, valor, quantidade global e soma parcial.
+    \item O servidor mostra cada requisição nova, duplicada ou fora de ordem.
+  \end{itemize}
+\end{frame}
+
+\section{Validação}
+
+\begin{frame}
+  \frametitle{Estratégia de testes}
+  \begin{enumerate}
+    \item Descoberta entre máquinas em rede local.
+    \item Envio manual, timeout e retransmissão em ambiente Ubuntu--Windows.
+    \item Dois clientes Linux em IPs distintos, com cargas concorrentes.
+    \item Validação da soma independente com \texttt{awk} antes do teste de arquivos grandes.
+  \end{enumerate}
+
+  \vspace{1em}
+  \begin{block}{Critério de verificação}
+    Para cada experimento, comparamos \texttt{num\_reqs} e \texttt{total\_sum} finais com a quantidade e a soma conhecidas das entradas.
+  \end{block}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Resultados no laboratório}
+  \small
+  \begin{center}
+    \begin{tabular}{@{}lrrl@{}}
+      \toprule
+      Teste & Requisições & Soma final & Observação \\
+      \midrule
+      Dois clientes, 100 valores cada & 200 & 20100 & total correto \\
+      Dois clientes, 1000 valores cada & 2000 & 2001000 & sem duplicatas \\
+      \texttt{N1} e \texttt{N2}, em paralelo & 2000000 & 51000107 & sem \texttt{DUP!!} \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+
+  \vspace{1em}
+  \begin{itemize}
+    \item Cada cliente enviou 1.000.000 de valores no maior teste.
+    \item A soma esperada veio de cálculos independentes sobre os arquivos de entrada.
+    \item O maior teste terminou em aproximadamente 3 minutos e 12 segundos.
+  \end{itemize}
+\end{frame}
+
+\section{Conclusão}
+
+\begin{frame}
+  \frametitle{Limites da etapa 1}
+  \begin{itemize}
+    \item O estado permanece somente em memória.
+    \item Uma falha do processo servidor elimina acumulador e tabela de participantes.
+    \item A identificação segue o IP do cliente, conforme a especificação.
+    \item A etapa seguinte pode acrescentar replicação e persistência consistente.
+  \end{itemize}
+
+  \vspace{1em}
+  \begin{block}{Escopo garantido}
+    Enquanto o servidor está em execução, o protocolo trata perdas, duplicatas e reordenação de mensagens UDP sem duplicar valores no acumulador.
+  \end{block}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Conclusão}
+  \begin{itemize}
+    \item Descoberta por broadcast identifica o servidor no segmento local.
+    \item Stop-and-wait, identificadores e ACKs implementam confiabilidade sobre UDP.
+    \item A tabela por cliente preserva o resultado de cada operação confirmada.
+    \item Os testes em máquinas distintas confirmaram a soma correta sob carga concorrente.
+  \end{itemize}
+
+  \vspace{1.4em}
+  \begin{center}
+    \large Perguntas?
+  \end{center}
+\end{frame}
+
+\end{document}
