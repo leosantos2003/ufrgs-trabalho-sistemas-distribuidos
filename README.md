@@ -71,6 +71,6 @@ que ultrapassaria esse limite.
 - `cliente.py`: leitura em thread dedicada, saída em thread dedicada e envio
   stop-and-wait.
 
-  ## License
+## License
 
-  Distributed under the MIT License. See `LICENSE.txt` for more information.
+Distributed under the MIT License. See `LICENSE.txt` for more information.
