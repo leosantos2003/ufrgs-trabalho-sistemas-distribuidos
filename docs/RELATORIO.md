@@ -2,7 +2,7 @@
 
 **Disciplina:** INF01085 - Sistemas Distribuídos e Tolerantes a Falhas  
 **Turma:** U - 2026/1  
-**Integrantes:** 
+**Integrantes:** Ana Rodrigues (343123), Igor Andreis (550760), Leonardo Santos (341831)
 
 ## 1. Visão geral
 
@@ -65,11 +65,7 @@ UDP não fornece confiabilidade, ordem ou ausência de duplicação. Essas garan
 
 ## 7. Validação executada
 
-1. Compilação dos módulos com `python3 -m py_compile`.
-2. Execução local entre Ubuntu e Windows, com descoberta UDP, enviando 10, 3 e 5. O servidor registrou corretamente `num_reqs 3 total_sum 18`. Uma retransmissão foi marcada como `DUP!!` sem alterar a soma.
-3. Teste doméstico com os valores de 1 a 100. Considerando os valores anteriores, o servidor chegou a `num_reqs 102 total_sum 5063`, valor compatível com `13 + sum(1..100)`.
-4. Teste de concorrência no laboratório com dois clientes Linux em IPs distintos. Cada cliente enviou 100 requisições; o servidor terminou com `num_reqs 200 total_sum 20100`.
-5. Teste de carga no laboratório com dois clientes, cada um enviando 1.000 requisições. O log registrou 2.000 requisições aceitas, sem mensagens duplicadas ou fora de ordem, e o resultado final foi `num_reqs 2000 total_sum 2001000`.
-6. Teste de carga com os arquivos `N1_1000000_NUM_ALEATORIOS.txt` e `N2_1000000_NUM_ALEATORIOS.txt`, processados concorrentemente em dois clientes Linux. As somas independentes foram 25486602 e 25513505; o servidor processou 2.000.000 requisições e terminou com `num_reqs 2000000 total_sum 51000107`, sem registros `DUP!!` nem `OUT_OF_ORDER`.
-
-Os comandos, resultados e logs dos testes estão documentados em `TESTES_EM_CASA.md` e `TESTE_EM_LABORATORIO.md`.
+1. Verificação sintática opcional dos módulos com `python3 -m py_compile`. Esse comando não é necessário para executar o sistema: os programas foram executados diretamente com `python3 servidor.py PORTA` e `python3 cliente.py PORTA`.
+2. Teste de concorrência no laboratório com dois clientes Linux em IPs distintos. Cada cliente enviou 100 requisições; o servidor terminou com `num_reqs 200 total_sum 20100`.
+3. Teste de carga no laboratório com dois clientes, cada um enviando 1.000 requisições. O log registrou 2.000 requisições aceitas, sem mensagens duplicadas ou fora de ordem, e o resultado final foi `num_reqs 2000 total_sum 2001000`.
+4. Teste de carga com os arquivos `N1_1000000_NUM_ALEATORIOS.txt` e `N2_1000000_NUM_ALEATORIOS.txt`, processados concorrentemente em dois clientes Linux. As somas independentes foram 25486602 e 25513505; o servidor processou 2.000.000 requisições e terminou com `num_reqs 2000000 total_sum 51000107`, sem registros `DUP!!` nem `OUT_OF_ORDER`.

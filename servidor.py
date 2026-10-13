@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Servidor UDP confiável para a agregação de números inteiros."""
+"""Servidor UDP confiável para a agregação de números inteiros.
+
+O servidor executa um único loop de recepção. Esse desenho é importante: cada
+datagrama é totalmente analisado e, se necessário, altera o acumulador antes
+que o próximo seja processado. Logo, as tabelas compartilhadas permanecem
+consistentes sem exigir locks no servidor da primeira etapa.
+"""
 
 from __future__ import annotations
 
@@ -23,39 +29,73 @@ from protocol import (
 
 @dataclass
 class ClientState:
-    """Última resposta confirmada para um cliente identificado pelo IP."""
+    """Última resposta confirmada para um cliente identificado pelo IP.
 
+    O estado é um retrato do ACK da última requisição aceita. Ele permite que o
+    servidor responda corretamente a uma retransmissão, mesmo se outros
+    clientes já tiverem modificado a soma global depois daquela operação.
+    """
+
+    # Maior ID processado para esse endereço IP.
     last_req: int = 0
+    # Quantidade global de requisições existente quando ``last_req`` foi aceito.
     last_num_reqs: int = 0
+    # Soma global existente quando ``last_req`` foi aceito.
     last_total_sum: int = 0
 
 
 class SumServer:
+    """Mantém a tabela de participantes e o acumulador global do serviço."""
+
     def __init__(self, port: int) -> None:
+        # AF_INET e SOCK_DGRAM selecionam UDP sobre IPv4, conforme o enunciado.
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Ajuda a reiniciar o processo logo após encerrá-lo, quando o sistema
+        # operacional ainda mantém informações de associação da porta.
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # O endereço vazio significa "todas as interfaces IPv4". Dessa forma,
+        # o servidor recebe tanto broadcasts de descoberta quanto unicast.
         self.socket.bind(("", port))
+        # A chave é o endereço IP porque o enunciado define o participante por
+        # esse campo. A porta UDP serve somente para responder ao datagrama.
         self.clients: dict[str, ClientState] = {}
+        # Estado agregado de todos os clientes, mantido apenas em memória.
         self.num_reqs = 0
         self.total_sum = 0
 
     @staticmethod
     def _timestamp() -> str:
+        """Produz a data no formato exigido pelas mensagens da interface."""
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def _send_ack(self, state: ClientState, address: tuple[str, int]) -> None:
+        """Envia o ACK que corresponde à última operação aceita do cliente.
+
+        Este método é usado após uma requisição nova, duplicada ou fora de
+        ordem. Nos dois últimos casos, ele não usa o acumulador global atual:
+        usa o retrato salvo em ``state``.
+        """
         self.socket.sendto(
             pack_ack(state.last_req, state.last_num_reqs, state.last_total_sum), address
         )
 
     def _handle_discovery(self, address: tuple[str, int]) -> None:
+        """Registra um participante novo e responde ao broadcast em unicast."""
         # A tabela é indexada por IP, conforme pedido no enunciado. A porta é
         # usada somente para responder ao datagrama que acabou de chegar.
         self.clients.setdefault(address[0], ClientState())
         self.socket.sendto(pack_discover_ack(), address)
 
     def _handle_request(self, data: bytes, address: tuple[str, int]) -> None:
+        """Classifica e responde uma requisição de processamento.
+
+        Somente a primeira ramificação, correspondente ao próximo ID esperado,
+        altera a soma. As demais ramificações existem para restaurar o fluxo
+        correto do cliente sem aplicar novamente o mesmo valor.
+        """
         try:
+            # Rejeita datagramas com tipo, tamanho ou formato incorretos antes
+            # de acessar os campos internos.
             request = unpack_request(data)
         except ProtocolError:
             return
@@ -66,14 +106,19 @@ class SumServer:
             # evita criar estado parcial por pacotes espúrios.
             return
 
+        # Como os IDs começam em 1, um cliente recém-descoberto espera ID 1.
         expected = state.last_req + 1
         if request.request_id == expected and request.value > 0:
             # O loop de recepção é sequencial. Portanto, estas atualizações
             # formam uma seção crítica atômica para a tabela e o acumulador.
             # A entrada é limitada a uint64; o overflow é tratado como erro de
             # protocolo, em vez de permitir que Python esconda a violação.
+            # A expressão de subtração detecta overflow antes de executar a
+            # soma. Sem essa checagem, um inteiro arbitrário de Python poderia
+            # ultrapassar silenciosamente o intervalo definido pelo protocolo.
             if self.num_reqs == MAX_UINT64 or self.total_sum > MAX_UINT64 - request.value:
                 return
+            # Esta é a única região do programa que modifica o estado global.
             self.num_reqs += 1
             self.total_sum += request.value
             state.last_req = request.request_id
@@ -85,6 +130,8 @@ class SumServer:
                 flush=True,
             )
         elif request.request_id <= state.last_req:
+            # O servidor já aplicou esse ID. A retransmissão acontece, por
+            # exemplo, quando o ACK original se perde na rede.
             print(
                 f"{self._timestamp()} client {address[0]} DUP!! id_req {request.request_id} "
                 f"value {request.value} num_reqs {state.last_num_reqs} "
@@ -92,6 +139,8 @@ class SumServer:
                 flush=True,
             )
         else:
+            # Um ID maior indica que falta ao menos uma requisição anterior.
+            # O ACK enviado abaixo informa ao cliente até onde o servidor foi.
             print(
                 f"{self._timestamp()} client {address[0]} OUT_OF_ORDER id_req "
                 f"{request.request_id} expected {expected}",
@@ -103,8 +152,10 @@ class SumServer:
         self._send_ack(state, address)
 
     def serve_forever(self) -> None:
+        """Executa o loop sequencial que recebe todos os datagramas UDP."""
         print(f"{self._timestamp()} num_reqs 0 total_sum 0", flush=True)
         while True:
+            # recvfrom fornece tanto os bytes quanto o IP e a porta de origem.
             data, address = self.socket.recvfrom(65535)
             message_type = data[:1]
             if message_type == DISCOVER and len(data) == 1:
@@ -119,6 +170,7 @@ class SumServer:
 
 
 def parse_port() -> int:
+    """Lê e valida o único parâmetro obrigatório: a porta UDP do serviço."""
     parser = argparse.ArgumentParser(description="Servidor UDP de soma confiável")
     parser.add_argument("port", type=int, help="porta UDP (1-65535)")
     port = parser.parse_args().port
@@ -128,6 +180,7 @@ def parse_port() -> int:
 
 
 def main() -> None:
+    """Inicializa o servidor e garante o fechamento do socket no encerramento."""
     server = SumServer(parse_port())
     try:
         server.serve_forever()

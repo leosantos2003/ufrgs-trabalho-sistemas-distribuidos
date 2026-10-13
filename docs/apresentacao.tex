@@ -20,10 +20,10 @@
 }
 
 % Preencher antes da apresentação.
-\newcommand{\Integrantes}{Nome 1 \quad Nome 2 \quad Nome 3 \quad Nome 4}
+\newcommand{\Integrantes}{Ana Rodrigres \quad Igor Andreis \quad Leonardo Santos}
 
 \title[Serviço distribuído de soma]{Serviço distribuído de soma confiável}
-\subtitle{INF01085 -- Sistemas Distribuídos e Tolerantes a Falhas\\Trabalho Prático 1: comunicação confiável interprocessos}
+\subtitle{INF01085 -- Sistemas Distribuídos e Tolerantes a Falhas}
 \author{\Integrantes}
 \institute{Instituto de Informática -- UFRGS}
 \date{Outubro de 2026}
@@ -242,7 +242,7 @@
   \frametitle{Estratégia de testes}
   \begin{enumerate}
     \item Descoberta entre máquinas em rede local.
-    \item Envio manual, timeout e retransmissão em ambiente Ubuntu--Windows.
+    \item Envio manual, timeout e retransmissão no laboratório.
     \item Dois clientes Linux em IPs distintos, com cargas concorrentes.
     \item Validação da soma independente com \texttt{awk} antes do teste de arquivos grandes.
   \end{enumerate}
@@ -279,21 +279,6 @@
 \section{Conclusão}
 
 \begin{frame}
-  \frametitle{Limites da etapa 1}
-  \begin{itemize}
-    \item O estado permanece somente em memória.
-    \item Uma falha do processo servidor elimina acumulador e tabela de participantes.
-    \item A identificação segue o IP do cliente, conforme a especificação.
-    \item A etapa seguinte pode acrescentar replicação e persistência consistente.
-  \end{itemize}
-
-  \vspace{1em}
-  \begin{block}{Escopo garantido}
-    Enquanto o servidor está em execução, o protocolo trata perdas, duplicatas e reordenação de mensagens UDP sem duplicar valores no acumulador.
-  \end{block}
-\end{frame}
-
-\begin{frame}
   \frametitle{Conclusão}
   \begin{itemize}
     \item Descoberta por broadcast identifica o servidor no segmento local.
@@ -302,10 +287,10 @@
     \item Os testes em máquinas distintas confirmaram a soma correta sob carga concorrente.
   \end{itemize}
 
-  \vspace{1.4em}
-  \begin{center}
-    \large Perguntas?
-  \end{center}
+  \vspace{1em}
+  \begin{block}{Escopo garantido}
+    Enquanto o servidor está em execução, o protocolo trata perdas, duplicatas e reordenação de mensagens UDP sem duplicar valores no acumulador.
+  \end{block}
 \end{frame}
 
 \end{document}
