@@ -38,6 +38,8 @@ REQUEST_TIMEOUT_SECONDS = 0.100
 # Marcador exclusivo colocado na fila quando a entrada padrão termina. Usar um
 # objeto, e não uma string ou número, impede confusão com valores legítimos.
 STOP = object()
+# Delimita tentativas de reenvio sem resposta para busca de novo FE
+MAX_ATTEMPTS = 5
 
 
 class Console:
@@ -148,19 +150,23 @@ class SumClient:
                     self.console.log(f"{self._timestamp()} server_addr {address[0]}")
                     return
 
-    def _send_until_acknowledged(self, request_id: int, value: int) -> None:
+    def _send_until_acknowledged(self, request_id: int, value: int) -> bool:
         """Executa stop-and-wait para uma única requisição.
 
-        A função só retorna quando recebe um ACK com o mesmo identificador.
-        Logo, ``run`` não incrementa o ID nem consome o próximo valor antes da
+        Retorna ``true`` quando recebe o ACK esperado (do FE) com o mesmo
+        identificador, e ``false`` caso o limite de tentativas sem resposta seja
+        atingido. Se retornar ``false``, ``run`` trata a falha e busca um novo servidor
+        (FE). Logo, ``run`` não incrementa o ID nem consome o próximo valor antes da
         confirmação da operação atual.
         """
         assert self.server is not None
         first_attempt = True
+        count_attempts = 0
+        
         # O pacote é criado uma vez e reutilizado em todos os reenvios. Isso
         # garante que uma retransmissão tenha exatamente o mesmo ID e valor.
         packet = pack_request(request_id, value)
-        while True:
+        while count_attempts >= MAX_ATTEMPTS:
             action = "SEND" if first_attempt else "RESEND"
             self.console.log(
                 f"{self._timestamp()} server {self.server[0]} {action} "
@@ -192,12 +198,14 @@ class SumClient:
                     f"value {value} num_reqs {acknowledgement.num_reqs} "
                     f"total_sum {acknowledgement.total_sum}"
                 )
-                return
+                return True
             self.console.log(
                 f"{self._timestamp()} server {self.server[0]} TIMEOUT "
                 f"id_req {request_id} value {value}"
             )
-
+            count_attempts+=1
+        return False
+                
     def run(self) -> None:
         """Descobre o servidor e consome a entrada até EOF ou interrupção."""
         self.discover()
@@ -208,9 +216,12 @@ class SumClient:
             value = self.values.get()
             if value is STOP:
                 return
-            # Esta chamada bloqueia até o ACK correto, mantendo o protocolo
-            # stop-and-wait e a numeração sequencial por cliente.
-            self._send_until_acknowledged(request_id, value)
+            # Esta chamada realiza o envio/reenvio da requisição até o ACK correto
+            # ou, após N tentativas sem resposta, busca um novo servidor (FE),
+            # mantendo o protocolo stop-and-wait e a numeração sequencial por cliente.
+            while not self._send_until_acknowledged(request_id, value):
+                self.server = None
+                self.discover()
             request_id += 1
 
     def close(self) -> None:
