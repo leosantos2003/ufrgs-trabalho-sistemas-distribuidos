@@ -28,6 +28,7 @@ DISCOVER_ACK: Final[bytes] = b"S"
 REQUEST: Final[bytes] = b"R"
 ACK: Final[bytes] = b"A"
 EXIT: Final[bytes] = b"E"
+ALIVE: Final[bytes] = b"H"
 
 # ``!`` seleciona a ordem de bytes de rede (big-endian). ``c`` é um byte de
 # tipo de mensagem e ``Q`` é um inteiro unsigned de 64 bits. Assim, REQUEST

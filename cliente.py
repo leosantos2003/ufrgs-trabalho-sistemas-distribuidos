@@ -41,7 +41,6 @@ STOP = object()
 # Delimita tentativas de reenvio sem resposta para busca de novo FE
 MAX_ATTEMPTS = 5
 
-
 class Console:
     """Serializa a saída em uma thread separada da leitura do teclado.
 
@@ -166,7 +165,7 @@ class SumClient:
         # O pacote é criado uma vez e reutilizado em todos os reenvios. Isso
         # garante que uma retransmissão tenha exatamente o mesmo ID e valor.
         packet = pack_request(request_id, value)
-        while count_attempts >= MAX_ATTEMPTS:
+        while count_attempts < MAX_ATTEMPTS:
             action = "SEND" if first_attempt else "RESEND"
             self.console.log(
                 f"{self._timestamp()} server {self.server[0]} {action} "
@@ -193,6 +192,7 @@ class SumClient:
                     # ACK antigo ou a confirmação de uma lacuna: a mesma
                     # requisição continua pendente e será retransmitida.
                     continue
+                count_attempts = 0
                 self.console.log(
                     f"{self._timestamp()} server {self.server[0]} id_req {request_id} "
                     f"value {value} num_reqs {acknowledgement.num_reqs} "
@@ -205,7 +205,7 @@ class SumClient:
             )
             count_attempts+=1
         return False
-                
+            
     def run(self) -> None:
         """Descobre o servidor e consome a entrada até EOF ou interrupção."""
         self.discover()
