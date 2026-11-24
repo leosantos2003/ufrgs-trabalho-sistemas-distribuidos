@@ -29,12 +29,110 @@ REQUEST: Final[bytes] = b"R"
 ACK: Final[bytes] = b"A"
 EXIT: Final[bytes] = b"E"
 ALIVE: Final[bytes] = b"H"
+SERVER_DISCOVER: Final[bytes] = b"J"
+SERVER_DISCOVER_ACK: Final[bytes] = b"K"
+RM_JOIN: Final[bytes] = b"G"
+RM_JOIN_ACK: Final[bytes] = b"N"
+RM_HEARTBEAT: Final[bytes] = b"B"
+RM_HEARTBEAT_ACK: Final[bytes] = b"O"
+RM_SNAPSHOT: Final[bytes] = b"P"
+RM_SNAPSHOT_ACK: Final[bytes] = b"Q"
+RM_TOPOLOGY: Final[bytes] = b"T"
+RM_LEAVE: Final[bytes] = b"L"
 
 # ``!`` seleciona a ordem de bytes de rede (big-endian). ``c`` é um byte de
 # tipo de mensagem e ``Q`` é um inteiro unsigned de 64 bits. Assim, REQUEST
 # ocupa 1 + 8 + 8 = 17 bytes e ACK ocupa 1 + 8 + 8 + 8 = 25 bytes.
 _REQUEST = struct.Struct("!cQQ")
 _ACK = struct.Struct("!cQQQ")
+
+
+REPLICATE: Final[bytes] = b"M"
+REPLICA_ACK: Final[bytes] = b"C"
+
+_REPLICATE = struct.Struct("!cQQ")
+_REPLICA_ACK = struct.Struct("!cQQQ")
+_RM_JOIN_ACK = struct.Struct("!cQQQ")
+_RM_SNAPSHOT_ACK = struct.Struct("!c")
+
+
+@dataclass(frozen=True)
+class ReplicateOp:
+    """Operação de soma ordenada enviada pelo Front-End aos Replica Managers."""
+
+    seq_id: int
+    value: int
+
+
+@dataclass(frozen=True)
+class ReplicaAck:
+    """Resposta de um Replica Manager ao Front-End após aplicar a soma."""
+
+    seq_id: int
+    num_reqs: int
+    total_sum: int
+
+
+def pack_replicate(seq_id: int, value: int) -> bytes:
+    """Serializa uma operação de soma com seu número de sequência global."""
+    
+    _uint64(seq_id, "seq_id")
+    _uint64(value, "value")
+    return _REPLICATE.pack(REPLICATE, seq_id, value)
+
+
+def unpack_replicate(data: bytes) -> ReplicateOp:
+    """Valida e decodifica um datagrama de replicação recebido pela réplica."""
+    
+    if len(data) != _REPLICATE.size or data[:1] != REPLICATE:
+        raise ProtocolError("datagrama de replicação inválido")
+    _, seq_id, value = _REPLICATE.unpack(data)
+    return ReplicateOp(seq_id, value)
+
+
+def pack_replica_ack(seq_id: int, num_reqs: int, total_sum: int) -> bytes:
+    """Serializa o resultado local calculado por uma réplica para o Front-End."""
+    
+    _uint64(seq_id, "seq_id")
+    _uint64(num_reqs, "num_reqs")
+    _uint64(total_sum, "total_sum")
+    return _REPLICA_ACK.pack(REPLICA_ACK, seq_id, num_reqs, total_sum)
+
+
+def unpack_replica_ack(data: bytes) -> ReplicaAck:
+    """Valida e decodifica uma confirmação de réplica recebida pelo Front-End."""
+    
+    if len(data) != _REPLICA_ACK.size or data[:1] != REPLICA_ACK:
+        raise ProtocolError("datagrama de confirmação de réplica inválido")
+    _, seq_id, num_reqs, total_sum = _REPLICA_ACK.unpack(data)
+    return ReplicaAck(seq_id, num_reqs, total_sum)
+
+
+@dataclass(frozen=True)
+class ReplicaSnapshot:
+    """Estado consolidado enviado pelo Front-End ao Replica Manager."""
+
+    num_reqs: int
+    total_sum: int
+    next_seq: int
+
+
+_RM_SNAPSHOT = struct.Struct("!cQQQ")
+
+
+def pack_rm_snapshot(num_reqs: int, total_sum: int, next_seq: int) -> bytes:
+    _uint64(num_reqs, "num_reqs")
+    _uint64(total_sum, "total_sum")
+    _uint64(next_seq, "next_seq")
+    return _RM_SNAPSHOT.pack(RM_SNAPSHOT, num_reqs, total_sum, next_seq)
+
+
+def unpack_rm_snapshot(data: bytes) -> ReplicaSnapshot:
+    if len(data) != _RM_SNAPSHOT.size or data[:1] != RM_SNAPSHOT:
+        raise ProtocolError("snapshot de replica invalido")
+    _, num_reqs, total_sum, next_seq = _RM_SNAPSHOT.unpack(data)
+    return ReplicaSnapshot(num_reqs, total_sum, next_seq)
+
 
 
 class ProtocolError(ValueError):
