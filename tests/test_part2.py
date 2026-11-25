@@ -201,6 +201,50 @@ class Part2IntegrationTest(unittest.TestCase):
             self.created.append(new_front_end)
         self.assertEqual(new_front_end.own_ip, "127.0.0.4")
 
+        # O novo FE herdou .3 na topologia, embora esse RM tenha caído antes
+        # da promoção. Ele precisa detectar a ausência, removê-lo e continuar
+        # a atender usando o voto do único RM vivo (.2).
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline and "127.0.0.3" in new_front_end.rm_ips:
+            time.sleep(0.02)
+        self.assertEqual(new_front_end.rm_ips, {"127.0.0.2"})
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        client.bind(("127.0.0.5", 0))
+        client.settimeout(2.0)
+        try:
+            client.sendto(DISCOVER, ("127.0.0.4", self.port))
+            self.assertEqual(client.recvfrom(64)[0], b"S")
+            client.sendto(pack_request(1, 7), ("127.0.0.4", self.port))
+            acknowledgement = unpack_ack(client.recvfrom(64)[0])
+            self.assertEqual(
+                (
+                    acknowledgement.request_id,
+                    acknowledgement.num_reqs,
+                    acknowledgement.total_sum,
+                ),
+                (1, 1, 7),
+            )
+        finally:
+            client.close()
+
+    def test_promoted_frontend_monitors_inherited_replicas(self) -> None:
+        """RMs herdados sem heartbeat inicial precisam poder expirar."""
+        replica = Replica(self.port, "127.0.0.1", "127.0.0.4")
+        self.created.append(replica)
+        with replica.state_lock:
+            # .3 representa o sucessor que caiu antes da promoção; .2 ainda
+            # está vivo, mas ambos fazem parte da topologia herdada.
+            replica.rm_ips = {"127.0.0.2", "127.0.0.3", "127.0.0.4"}
+
+        promoted = FrontEnd.from_replica(replica)
+        self.created.append(promoted)
+
+        self.assertEqual(
+            set(promoted.rm_last_seen),
+            {"127.0.0.2", "127.0.0.3"},
+        )
+
 
 class ClientUdpResetTest(unittest.TestCase):
     """Garante que resets UDP do Windows não interrompam o failover."""

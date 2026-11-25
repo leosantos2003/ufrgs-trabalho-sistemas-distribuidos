@@ -215,7 +215,15 @@ class FrontEnd(SumServer):
         # Somente um FE que foi promovido de um RM pode atender sozinho. Um
         # FE inicial sem réplicas ainda deve aguardar a formação do quorum.
         self.allow_local_commit = allow_local_commit
-        self.rm_last_seen: dict[str, float] = {}
+        # Um FE promovido herda a topologia conhecida pelo RM vencedor. Como
+        # ainda não recebeu heartbeats desses nós no novo papel, iniciar sem
+        # timestamps faria o monitor ignorar para sempre qualquer RM que já
+        # estivesse indisponível na promoção. O instante de criação funciona
+        # como limite inicial: RMs vivos o renovam logo; os mortos expiram.
+        initial_seen_at = time.monotonic()
+        self.rm_last_seen: dict[str, float] = {
+            rm_ip: initial_seen_at for rm_ip in self.rm_ips
+        }
         self.rm_sync_pending: set[str] = set()
 
         # A chave é o endereço IP porque o enunciado define o participante por

@@ -1,6 +1,6 @@
-# Roteiro de validação em três PCs Linux
+# Roteiro de validação em três e quatro PCs Linux
 
-**Objetivo:** executar uma bateria manual, reproduzível e observável antes da demonstração para o professor. O roteiro cobre descoberta, replicação ativa, quórum, concorrência, queda e retorno de RM, eleição do FE e continuidade dos clientes.
+**Objetivo:** executar uma bateria manual, reproduzível e observável antes da demonstração para o professor. O roteiro cobre descoberta, replicação ativa, quórum, concorrência, queda e retorno de RM, eleição do FE e continuidade dos clientes. As seções 1 a 7 usam três PCs; a seção 8 aproveita um quarto PC para validar quórum com três RMs e o salto de um sucessor indisponível no anel.
 
 ## Topologia planejada
 
@@ -11,8 +11,9 @@ Use três computadores Linux distintos, na mesma rede local IPv4 e sem isolament
 | A | Front-End (FE) inicial | A_IP | servidor, cliente opcional |
 | B | Replica Manager (RM) | B_IP | servidor, cliente |
 | C | Replica Manager (RM) | C_IP | servidor, cliente opcional |
+| D (opcional) | terceiro RM, usado na seção 8 | D_IP | servidor, cliente opcional |
 
-Substitua A_IP, B_IP e C_IP pelos IPs observados na rede de teste. Inicie A primeiro, B em seguida e C por último; assim os papéis iniciais ficam previsíveis.
+Substitua A_IP, B_IP e C_IP pelos IPs observados na rede de teste. Para as seções 1 a 7, inicie A primeiro, B em seguida e C por último; assim os papéis iniciais ficam previsíveis. A seção 8 usa A como FE inicial e B, C e D como RMs.
 
 > Importante: cada cliente é identificado pelo IP. Execute no máximo um cliente por computador ao mesmo tempo. Um cliente e um servidor podem coexistir na mesma máquina, pois o cliente usa uma porta UDP efêmera.
 
@@ -30,7 +31,7 @@ make test
 sha256sum cliente.py servidor.py protocol.py
 ~~~
 
-Compare os três hashes entre as máquinas. Eles devem ser iguais.
+Compare os hashes entre todas as máquinas usadas. Eles devem ser iguais.
 
 ### 1.2 Rede, relógio e firewall
 
@@ -75,6 +76,9 @@ python3 servidor.py 4000 | tee servidor-b.log
 
 # C
 python3 servidor.py 4000 | tee servidor-c.log
+
+# D (somente na seção 8)
+python3 servidor.py 4000 | tee servidor-d.log
 ~~~
 
 Não envie requisições antes de os dois RMs terminarem a entrada no grupo.
@@ -337,9 +341,126 @@ Guarde os seis logs de servidor, quando aplicável, e os logs de cliente. Para c
 - linhas do cliente com TIMEOUT, RESEND, server_addr e ACK final;
 - versão do sistema operacional, Python e configuração de rede.
 
-## Limite do cenário com três PCs
+## 8. Extensão para quatro PCs: três RMs e sucessor indisponível
 
-Três PCs dão um FE e dois RMs, permitindo validar quorum real 2/2 e eleição entre dois candidatos. Isso é o mínimo recomendado para uma apresentação convincente.
+Com quatro PCs, mantenha A como FE inicial e use B, C e D como RMs. Além de aumentar o conjunto de réplicas, isso viabiliza o caso que não pode ser demonstrado com três identidades: um RM tenta encaminhar um token para seu sucessor imediato, descobre que ele caiu e o encaminha para o próximo RM ainda vivo.
 
-O teste de pular um sucessor morto no anel com encaminhamento para outro RM vivo exige três RMs além do FE, ou seja, quatro identidades de servidor. Caso seja necessário demonstrá-lo fisicamente, use uma quarta máquina, VM ou namespace de rede com IP próprio na mesma LAN.
+> Execute cada subseção a seguir a partir de um cluster reiniciado do zero. Isso impede que uma remoção anterior altere a topologia que o próximo teste precisa observar.
+
+### 8.1 Formação com três RMs e quórum de maioria
+
+1. Inicie A e espere que ele se autoproclame FE. Em seguida, inicie B, C e D, um de cada vez:
+
+~~~bash
+# Em A, B, C e D, respectivamente
+python3 servidor.py 4000 | tee servidor-a-4pcs.log
+python3 servidor.py 4000 | tee servidor-b-4pcs.log
+python3 servidor.py 4000 | tee servidor-c-4pcs.log
+python3 servidor.py 4000 | tee servidor-d-4pcs.log
+~~~
+
+2. Antes de usar um cliente, confirme que A registrou as três entradas e ficou com `active_rms 3`. Em B, C e D, confirme uma topologia contendo os três IPs de RM.
+
+3. Abra um cliente em qualquer um dos quatro PCs, envie `10` e aguarde a confirmação.
+
+**Critério de aprovação**
+
+- A registra `FE DISPATCH seq_id 1` e `FE QUORUM` com `expected_rms 3` e quórum de maioria `2/2`;
+- B, C e D registram `RM APPLIED seq_id 1` e chegam a `num_reqs 1 total_sum 10`;
+- o cliente recebe `num_reqs 1 total_sum 10`.
+
+O FE pode confirmar assim que receber dois votos concordantes; o terceiro `RM APPLIED` ainda deve aparecer, pois a operação é disseminada para todos os RMs ativos.
+
+### 8.2 Queda de um RM com dois RMs sobreviventes
+
+1. Em uma nova execução com A como FE e B/C/D ativos, envie `10` e confirme o estado inicial `1 / 10`.
+
+2. Escolha um RM, por exemplo C, e encerre apenas o processo de servidor dele:
+
+~~~bash
+# Em C
+pgrep -af 'servidor.py 4000'
+kill -9 PID_DO_SERVIDOR_DE_C
+~~~
+
+3. Aguarde aproximadamente 11 a 12 segundos. Em A, procure `FE RM_FAILURE ... active_rms 2`; nos outros dois RMs, confirme uma topologia sem C.
+
+4. Pelo cliente ainda aberto, envie `20`.
+
+**Critério de aprovação**
+
+~~~text
+FE QUORUM ... value 20 quorum 2/2 (expected_rms 2) num_reqs 2 total_sum 30
+~~~
+
+Os dois RMs sobreviventes devem registrar `RM APPLIED seq_id 2`. Diferentemente do cenário de três PCs, a queda de uma das três réplicas não reduz o quórum para `1/1`: ainda são necessários os dois votos dos RMs restantes.
+
+### 8.3 Salto de sucessor morto durante a eleição
+
+Este é o teste adicional mais importante habilitado pelo quarto PC. A ordem do anel é numérica pelo IPv4; portanto, os papéis abaixo são lógicos e não dependem de B, C e D terem endereços consecutivos.
+
+1. Em uma execução nova, inicie A como FE e B/C/D como RMs. Entre os IPs de B, C e D, anote:
+
+| Rótulo lógico | Escolha |
+| --- | --- |
+| `L_IP` | o menor IPv4 entre os três RMs |
+| `M_IP` | o IPv4 intermediário |
+| `H_IP` | o maior IPv4 entre os três RMs |
+
+2. Aguarde a topologia com os três RMs e envie `10` por um cliente executado no computador de `L_IP`. Confirme `num_reqs 1 total_sum 10` antes de continuar. Mantenha esse cliente aberto.
+
+3. Descubra os PIDs dos processos de servidor em A e no computador de `M_IP`. Encerre primeiro `M_IP` e, **em até poucos segundos e sempre antes de A detectar a queda de M**, encerre A. O intervalo precisa ser menor que os cerca de 10 segundos do timeout de heartbeat; assim L ainda terá M em sua topologia local quando a eleição começar.
+
+~~~bash
+# No computador de M_IP
+pgrep -af 'servidor.py 4000'
+kill -9 PID_DO_SERVIDOR_DE_M
+
+# Logo em seguida, no computador A
+pgrep -af 'servidor.py 4000'
+kill -9 PID_DO_SERVIDOR_DE_A
+~~~
+
+4. Deixe `L_IP` e `H_IP` em execução e aguarde aproximadamente 11 a 12 segundos pela detecção da queda do FE. No log de `L_IP`, a sequência relevante é:
+
+~~~text
+RM FE_FAILURE_DETECTED fe A_IP
+RING ELECTION_START ... members L_IP,M_IP,H_IP
+RING ELECTION_SEND ... to M_IP
+RING SUCCESSOR_UNAVAILABLE ... successor M_IP
+RING ELECTION_SEND ... to H_IP
+RING ELECTION_FORWARDED ... to H_IP
+~~~
+
+5. Confirme nos dois sobreviventes as mensagens `RING ELECTION_*` e `RING COORDINATOR_*`. O novo FE deve ser `H_IP`, o maior IP ainda vivo:
+
+~~~text
+RING NEW_FRONTEND ... ip H_IP
+~~~
+
+É normal que L e H iniciem rodadas quase simultâneas e que mais de uma linha `SUCCESSOR_UNAVAILABLE` apareça: os tokens `ELECTION` e `COORDINATOR` usam o mesmo mecanismo de encaminhamento confirmado. O critério essencial é existir ao menos um salto de `M_IP` para `H_IP` e apenas `H_IP` estabilizar como FE.
+
+6. Para provar a continuidade, digite `20` no cliente de `L_IP` logo após encerrar A. Ele deve registrar `TIMEOUT` e `RESEND`, redescobrir `H_IP` como `server_addr` e manter `id_req 2`, `value 20`. Pode ser necessário aguardar mais um ciclo de detecção para H remover M de sua topologia; o resultado final esperado é:
+
+~~~text
+num_reqs 2 total_sum 30
+~~~
+
+No novo FE, procure a remoção de `M_IP`, seguida da consolidação da operação com o único RM sobrevivente:
+
+~~~text
+FE RM_FAILURE rm M_IP active_rms 1
+FE QUORUM ... value 20 quorum 1/1 (expected_rms 1) num_reqs 2 total_sum 30
+~~~
+
+### 8.4 Evidências extras a guardar
+
+Além das evidências da seção 7, guarde os quatro logs de servidor e o log do cliente em `L_IP`. Registre explicitamente:
+
+- os três IPs de RM e sua ordenação `L_IP < M_IP < H_IP`;
+- a entrada de B, C e D e a topologia inicial com três RMs;
+- uma confirmação normal com `expected_rms 3` e quórum `2/2`;
+- a confirmação com dois RMs sobreviventes, ainda com quórum `2/2`;
+- `RING SUCCESSOR_UNAVAILABLE` para `M_IP` e o envio subsequente para `H_IP`;
+- `RING NEW_FRONTEND` em `H_IP`, a redescoberta do cliente e o estado final `2 / 30`.
 
