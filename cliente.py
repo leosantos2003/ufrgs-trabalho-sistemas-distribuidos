@@ -26,6 +26,7 @@ from protocol import (
     pack_discover,
     pack_exit,
     pack_request,
+    broadcast_destinations,
     unpack_ack,
 )
 
@@ -127,20 +128,31 @@ class SumClient:
 
     def discover(self) -> None:
         """Localiza o servidor por broadcast e guarda seu endereço unicast."""
-        # O endereço pode ser sobrescrito apenas para testes em loopback. O
-        # comportamento padrão é o broadcast IPv4 pedido pela especificação.
-        broadcast = os.environ.get("DISCOVERY_BROADCAST", "255.255.255.255")
-        destination = (broadcast, self.port)
+        # A variável existe apenas como auxílio de diagnóstico em loopback ou
+        # em uma rede que bloqueie broadcast. No caminho normal, tenta tanto o
+        # broadcast limitado quanto o broadcast dirigido da interface.
+        override = os.environ.get("DISCOVERY_BROADCAST")
+        broadcasts = (override,) if override else broadcast_destinations()
         while self.server is None:
             # Se o datagrama broadcast se perder, o laço tenta novamente após
             # o prazo de descoberta, sem criar entradas duplicadas no servidor.
-            self.socket.sendto(pack_discover(), destination)
+            for broadcast in broadcasts:
+                try:
+                    self.socket.sendto(pack_discover(), (broadcast, self.port))
+                except OSError:
+                    # Mantém a tentativa pelo outro broadcast disponível.
+                    continue
             deadline = time.monotonic() + DISCOVERY_RETRY_SECONDS
             while time.monotonic() < deadline:
                 self.socket.settimeout(max(0.0, deadline - time.monotonic()))
                 try:
                     data, address = self.socket.recvfrom(65535)
-                except socket.timeout:
+                except (socket.timeout, ConnectionResetError, ConnectionRefusedError):
+                    # Após enviar UDP para uma porta que acabou de ser fechada,
+                    # o Windows pode entregar o ICMP "Port Unreachable" como
+                    # WinError 10054 no recvfrom. Para o protocolo, isso é
+                    # equivalente a não receber resposta: continua buscando o
+                    # FE, em vez de encerrar o cliente.
                     break
                 if data == DISCOVER_ACK:
                     # A resposta deve sair da porta configurada no servidor.
@@ -171,14 +183,23 @@ class SumClient:
                 f"{self._timestamp()} server {self.server[0]} {action} "
                 f"id_req {request_id} value {value}"
             )
-            self.socket.sendto(packet, self.server)
+            try:
+                self.socket.sendto(packet, self.server)
+            except (ConnectionResetError, ConnectionRefusedError):
+                # Alguns stacks UDP entregam o erro ICMP pendente já no envio.
+                # Conta como tentativa perdida e deixa o caminho normal de
+                # timeout/redescoberta cuidar da recuperação.
+                pass
             first_attempt = False
             deadline = time.monotonic() + REQUEST_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
                 self.socket.settimeout(max(0.0, deadline - time.monotonic()))
                 try:
                     data, address = self.socket.recvfrom(65535)
-                except socket.timeout:
+                except (socket.timeout, ConnectionResetError, ConnectionRefusedError):
+                    # No Windows, a queda abrupta do FE pode chegar como
+                    # WinError 10054 (ICMP "Port Unreachable"), não timeout.
+                    # Ambos representam ausência de ACK para esta tentativa.
                     break
                 if address != self.server or data[:1] != ACK:
                     # Descarta tráfego que não veio do servidor aceito ou que
