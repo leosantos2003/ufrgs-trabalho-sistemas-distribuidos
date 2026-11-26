@@ -1,5 +1,6 @@
 # Logs gerados pelos testes de carga e demonstrações.
 *.log
+logs/
 
 # Bytecode e caches gerados pelo Python.
 __pycache__/
@@ -10,5 +11,6 @@ slides-infufrgs/
 apresentacao-overleaf/
 
 entrega/
+entrega-pt2/
 
 teste_replica.py
